@@ -1,109 +1,56 @@
-import { randomUUID } from "node:crypto";
-import db from "../database/db.js";
 
-export async function listarPokemons() {
-    return db("pokemons")
-        .join(
-            "treinadores",
-            "pokemons.treinador_id",
-            "treinadores.id"
-        )
-        .select(
-            "pokemons.*",
-            "treinadores.nome as treinador_nome"
-        )
-        .orderBy("pokemons.ordem_captura");
-}
+import { pool } from "../database/db.js";
 
-export async function buscarPokemonPorId(id) {
-    return db("pokemons")
-        .join(
-            "treinadores",
-            "pokemons.treinador_id",
-            "treinadores.id"
-        )
-        .select(
-            "pokemons.*",
-            "treinadores.nome as treinador_nome"
-        )
-        .where("pokemons.id", id)
-        .first();
-}
+class pokemonService {
+    async getall() {
+        const res = await pool.query("SELECT * FROM pokemons");
+        return res.rows;
+    }
 
-export async function criarPokemon(dados) {
-    const ultimo = await db("pokemons")
-        .max("ordem_captura as maior")
-        .first();
+    async getById(id) {
+        const res = await pool.query(
+            "SELECT * FROM pokemons WHERE id = $1",
+            [id]
+        );
+        return res.rows[0];
+    }
 
-    const ordem = dados.ordem_captura ??
-        (Number(ultimo.maior || 0) + 1);
+    async create(nome, nivel, tipo, treinador_id) {
+        const res = await pool.query(
+            "INSERT INTO pokemons (nome, nivel, tipo, treinador_id) VALUES ($1, $2, $3, $4) RETURNING *",
+            [nome, nivel, tipo, treinador_id]
+        );
+        return res.rows[0];
+    }
 
-    const [pokemon] = await db("pokemons")
-        .insert({
-            id: randomUUID(),
-            nome: dados.nome,
-            nivel: dados.nivel,
-            tipo: dados.tipo,
-            ordem_captura: ordem,
-            treinador_id: dados.treinador_id
-        })
-        .returning("*");
+    async update(id, nome, nivel, tipo, treinador_id) {
+        const res = await pool.query(
+            "UPDATE pokemons SET nome = $2, nivel = $3, tipo = $4, treinador_id = $5 WHERE id = $1 RETURNING *",
+            [id, nome, nivel, tipo, treinador_id]
+        );
+        return res.rows[0];
+    }
 
-    return pokemon;
-}
+    async patch(id, dados) {
+        const campos = [];
+        const valores = [];
+        let numero = 1;
 
-export async function atualizarPokemon(id, dados) {
-    const atualizacao = {};
-
-    const campos = [
-        "nome",
-        "nivel",
-        "tipo",
-        "ordem_captura",
-        "treinador_id"
-    ];
-
-    for (const campo of campos) {
-        if (dados[campo] !== undefined) {
-            atualizacao[campo] = dados[campo];
+        for (const campo in dados) {
+            campos.push(`${campo} = $${numero}`);
+            valores.push(dados[campo]);
+            numero++;
         }
+
+        valores.push(id);
+
+        const res = await pool.query(
+            `UPDATE pokemons SET ${campos.join(", ")} WHERE id = $${numero} RETURNING *`,
+            valores
+        );
+
+        return res.rows[0];
     }
-
-    if (Object.keys(atualizacao).length === 0) {
-        return buscarPokemonPorId(id);
-    }
-
-    const [pokemon] = await db("pokemons")
-        .where({ id })
-        .update(atualizacao)
-        .returning("*");
-
-    return pokemon || null;
 }
 
-export async function excluirPokemon(id) {
-    const [pokemon] = await db("pokemons")
-        .where({ id })
-        .delete()
-        .returning("*");
-
-    return pokemon || null;
-}
-
-export async function atualizarPokemon(id, dados) {
-    const pokemon = await db("pokemons")
-        .where({ id })
-        .first();
-
-    if (!pokemon) {
-        return null;
-    }
-
-    await db("pokemons")
-        .where({ id })
-        .update(dados);
-
-    return await db("pokemons")
-        .where({ id })
-        .first();
-}
+export const pokemonServices = new pokemonService();
